@@ -22,37 +22,23 @@ load_dotenv()
 app = Flask(__name__)
 
 # --- Variáveis de Ambiente e Segurança ---
-# Define o ambiente da aplicação: 'production' no Railway, 'development' localmente
-FLASK_ENV = os.environ.get("FLASK_ENV", "development") 
-app_logger.info(f"Flask environment: {FLASK_ENV}")
-
-# Chave de API de Administração: OBRIGATÓRIO vir de uma variável de ambiente em produção!
+# Chave de API de Administração: OBRIGATÓRIO vir de uma variável de ambiente!
+# Esta chave é CRÍTICA. NUNCA a coloque diretamente no código fonte!
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY")
 
 if not ADMIN_API_KEY:
-    if FLASK_ENV == "production":
-        app_logger.critical("CRITICAL: ADMIN_API_KEY environment variable is not set! Cannot start application securely in production.")
-        raise EnvironmentError("ADMIN_API_KEY environment variable is not set! Application cannot start securely.")
-    else:
-        app_logger.warning("ADMIN_API_KEY not set. Using default key for development ONLY. DO NOT USE IN PRODUCTION.")
-        ADMIN_API_KEY = "dev_admin_key_123" # ALTERE ESTA CHAVE PARA UM VALOR DIFERENTE DA CHAVE DE PRODUÇÃO!
+    # Se a chave de admin não for encontrada nas variáveis de ambiente,
+    # a aplicação não iniciará. Isso garante que a chave esteja sempre configurada.
+    app_logger.critical("CRITICAL: ADMIN_API_KEY environment variable is not set! Application cannot start without it.")
+    raise EnvironmentError("ADMIN_API_KEY environment variable is not set! Please configure it.")
 
-# URL da Origem do Frontend (para CORS): OBRIGATÓRIO vir de uma variável de ambiente em produção!
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN")
+# Configuração de CORS: Habilitado para todas as origens.
+# AVISO: Isso pode ter implicações de segurança para aplicações em produção.
+app_logger.info("CORS is enabled for all origins (*).")
+CORS(app) 
 
-# Configuração de CORS: Muito importante para segurança!
-if FLASK_ENV == "production" and FRONTEND_ORIGIN:
-    app_logger.info(f"CORS restricted to origin: {FRONTEND_ORIGIN}")
-    CORS(app, resources={r"/*": {"origins": [FRONTEND_ORIGIN]}})
-elif FLASK_ENV == "production" and not FRONTEND_ORIGIN:
-    app_logger.critical("CRITICAL: FRONTEND_ORIGIN environment variable is not set in production. CORS might be too permissive or break.")
-    CORS(app) # Permissivo se FRONTEND_ORIGIN não for definida em produção (NÃO IDEAL!)
-else:
-    app_logger.info("CORS is permissive (development mode).")
-    CORS(app) 
-
-# Caminho do banco de dados SQLite (também pode ser de uma variável de ambiente se precisar de persistência específica no Railway)
-DATABASE = os.environ.get("DATABASE_PATH", "cantina.db")
+# Caminho do banco de dados SQLite
+DATABASE = "cantina.db"
 app_logger.info(f"Using database: {DATABASE}")
 
 # --- Funções de Banco de Dados ---
@@ -184,10 +170,10 @@ def admin_adicionar_produto():
         return jsonify({"id": produto_id, "nome": nome, "descricao": descricao, "preco": preco, "categoria": categoria, "imagem_url": imagem_url, "disponivel": disponivel}), 201
     except ValueError:
         app_logger.error(f"Valor inválido no formulário de produto: {request.get_json()}")
-        return jsonify({"erro": "Formato de preço inválido ou dados malformados."}), 400
+        return jsonify({"erro": f"Formato de preço inválido ou dados malformados: {str(ValueError())}"}), 400
     except Exception as e:
         app_logger.error(f"Erro interno ao adicionar produto: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao adicionar produto: {str(e)}"}), 500
 
 @app.route('/admin/produtos', methods=['GET'])
 @admin_required
@@ -200,7 +186,7 @@ def admin_listar_todos_produtos():
         return jsonify(produtos), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao listar produtos (admin): {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao listar produtos (admin): {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao listar produtos (admin): {str(e)}"}), 500
 
 @app.route('/admin/produtos/<int:produto_id>', methods=['PUT'])
 @admin_required
@@ -254,10 +240,10 @@ def admin_atualizar_produto(produto_id):
         return jsonify(produto_atualizado), 200
     except ValueError:
         app_logger.error(f"Valor inválido na atualização de produto: {request.get_json()}")
-        return jsonify({"erro": "Formato de preço inválido ou dados malformados."}), 400
+        return jsonify({"erro": f"Formato de preço inválido ou dados malformados: {str(ValueError())}"}), 400
     except Exception as e:
         app_logger.error(f"Erro interno ao atualizar produto {produto_id}: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao atualizar produto: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao atualizar produto: {str(e)}"}), 500
 
 @app.route('/admin/produtos/<int:produto_id>', methods=['DELETE'])
 @admin_required
@@ -283,7 +269,7 @@ def admin_deletar_produto(produto_id):
         return jsonify({"erro": "Erro de integridade: Produto pode estar referenciado em pedidos. Tente torná-lo indisponível."}), 409
     except Exception as e:
         app_logger.error(f"Erro interno ao deletar produto {produto_id}: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao deletar produto: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao deletar produto: {str(e)}"}), 500
 
 # --- Gerenciamento de Pedidos (Admin) ---
 @app.route('/admin/relatorios/ganhos', methods=['GET'])
@@ -315,7 +301,7 @@ def admin_relatorio_ganhos_diarios():
         }), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao gerar relatório de ganhos para data {data_str}: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao gerar relatório de ganhos: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao gerar relatório de ganhos: {str(e)}"}), 500
 
 @app.route('/admin/pedidos', methods=['GET'])
 @admin_required
@@ -347,7 +333,7 @@ def admin_listar_todos_pedidos():
         return jsonify(pedidos), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao listar todos os pedidos (admin): {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao listar todos os pedidos (admin): {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao listar todos os pedidos (admin): {str(e)}"}), 500
 
 @app.route('/admin/pedidos/<string:codigo_retirada>/status', methods=['PUT'])
 @admin_required
@@ -375,7 +361,7 @@ def admin_atualizar_status_pedido(codigo_retirada):
         return jsonify({"mensagem": f"Status do pedido {codigo_retirada} atualizado para {novo_status}."}), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao atualizar status do pedido {codigo_retirada}: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao atualizar status do pedido: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao atualizar status do pedido: {str(e)}"}), 500
 
 # --- ROTAS PÚBLICAS / CLIENTE ---
 
@@ -403,7 +389,7 @@ def cliente_listar_produtos():
         return jsonify(produtos), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao listar produtos (cliente): {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao listar produtos (cliente): {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao listar produtos (cliente): {str(e)}"}), 500
 
 @app.route('/produtos/<int:produto_id>', methods=['GET'])
 def cliente_obter_produto(produto_id):
@@ -418,7 +404,7 @@ def cliente_obter_produto(produto_id):
             return jsonify({"erro": "Produto não encontrado ou indisponível."}), 404
     except Exception as e:
         app_logger.error(f"Erro interno ao obter produto {produto_id} (cliente): {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao obter produto (cliente): {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao obter produto (cliente): {str(e)}"}), 500
 
 @app.route('/pedidos', methods=['POST'])
 def cliente_criar_pedido():
@@ -497,7 +483,7 @@ def cliente_criar_pedido():
         if db:
             db.rollback() 
         app_logger.error(f"Erro interno ao criar pedido: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao criar pedido: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao criar pedido: {str(e)}"}), 500
 
 @app.route('/pedidos/<string:codigo_retirada>', methods=['GET'])
 def cliente_consultar_pedido(codigo_retirada):
@@ -519,12 +505,12 @@ def cliente_consultar_pedido(codigo_retirada):
             JOIN produtos p ON ip.produto_id = p.id
             WHERE ip.pedido_id = ?
         """, (pedido_dict['id'],))
-        itens = [dict(row) for row in itens_cursor.fetchall()]
+        itens = [dict(item_row) for item_row in itens_cursor.fetchall()]
         pedido_dict['itens'] = itens
         return jsonify(pedido_dict), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao consultar pedido (cliente) {codigo_retirada}: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao consultar pedido (cliente): {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao consultar pedido (cliente): {str(e)}"}), 500
 
 @app.route('/meus-pedidos/<string:cliente_id>', methods=['GET'])
 def cliente_listar_meus_pedidos(cliente_id):
@@ -558,17 +544,15 @@ def cliente_listar_meus_pedidos(cliente_id):
         return jsonify(pedidos), 200
     except Exception as e:
         app_logger.error(f"Erro interno ao listar pedidos do cliente {cliente_id}: {str(e)}", exc_info=True)
-        return jsonify({"erro": "Ocorreu um erro interno no servidor." if FLASK_ENV == "production" else f"Erro interno ao listar seus pedidos: {str(e)}"}), 500
+        return jsonify({"erro": f"Erro interno ao listar seus pedidos: {str(e)}"}), 500
 
 # --- Inicialização ---
 if __name__ == '__main__':
     # Este bloco de código só é executado quando você roda o script diretamente (ex: python app.py).
     # Em ambientes de produção como o Railway, um servidor WSGI (como Gunicorn) será usado,
     # e ele não executa este bloco.
-    if FLASK_ENV != "production":
-        with app.app_context():
-            init_db_logic() # Inicializa o DB localmente se não for ambiente de produção
-        app_logger.info(f"Running in {FLASK_ENV} mode. Debug: True")
-        app.run(debug=True, port=5000) # Porta padrão para Flask
-    else:
-        app_logger.info("Server is running in production mode via WSGI server (e.g., Gunicorn).")
+    # A inicialização do DB agora acontece sempre que o servidor de desenvolvimento é iniciado.
+    with app.app_context():
+        init_db_logic() 
+    app_logger.info("Running in development mode (no FLASK_ENV). Debug: True")
+    app.run(debug=True, port=5000)
